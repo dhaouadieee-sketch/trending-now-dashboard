@@ -32,10 +32,9 @@ if hn_df.empty:
 if github_df.empty:
     st.warning("⚠️ Using sample data for GitHub")
 
-# Continue with your tabs...
 tab1, tab2, tab3 = st.tabs(["Reddit", "Hacker News", "GitHub Trending"])
 
-# ── Reddit Tab ───────────────────────────────────────────
+# Reddit Tab 
 with tab1:
     st.subheader("Top Reddit Posts Today")
     if not reddit_df.empty:
@@ -66,34 +65,17 @@ with tab1:
     else:
         st.info("No Reddit data available")
 
-# ── Hacker News Tab ──────────────────────────────────────
+# Hacker News Tab 
 with tab2:
     st.subheader("Top Hacker News Stories")
-    if not hn_df.empty:
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            fig = px.bar(hn_df.head(15), x="score", y="title", orientation="h",
-                         title="Top Stories by Score",
-                         color="score", color_continuous_scale="Blues")
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-            if "sentiment" in hn_df.columns:
-                sentiment_counts = hn_df["sentiment"].value_counts()
-                fig2 = px.pie(values=sentiment_counts.values,
-                              names=sentiment_counts.index,
-                              title="Sentiment Analysis",
-                              color_discrete_map={"Positive":"#2ecc71",
-                                                  "Negative":"#e74c3c",
-                                                  "Neutral":"#95a5a6"})
-                st.plotly_chart(fig2, use_container_width=True)
-
-        st.dataframe(hn_df[["title","score","sentiment"]], use_container_width=True)
-    else:
-        st.info("No Hacker News data available")
-
-# ── GitHub Tab ───────────────────────────────────────────
+    with col1:
+        fig = px.bar(hn_df.head(15), x="score", y="title", orientation="h",
+                     title="Top Stories by Score",
+                     color="score", color_continuous_scale="Blues")
+        st.plotly_chart(fig, use_container_width=True)
+#GitHub Tab 
 with tab3:
     st.subheader("GitHub Trending Repositories")
     if not github_df.empty:
