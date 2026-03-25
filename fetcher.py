@@ -1,214 +1,267 @@
+"""
+fetcher.py
+----------
+Fetches live data from Reddit, Hacker News, and GitHub.
 
-import requests          # sends HTTP requests to APIs
-import pandas as pd      # stores data in table (DataFrame) format
-import streamlit as st   # used only for st.warning() / st.error() messages in the UI
- 
- 
+KEY FIX: Reddit frequently blocks cloud server IPs (Streamlit Cloud included).
+We now safely check response content BEFORE calling .json() so we never
+get a JSONDecodeError crash. If Reddit blocks us, we silently use sample data.
+"""
+
+import requests
+import pandas as pd
+import streamlit as st
+
+
+# ─────────────────────────────────────────────
+#  HELPER — safe JSON parser
+# ─────────────────────────────────────────────
+
+def _safe_json(response):
+    """
+    Tries to parse a requests Response as JSON.
+    Returns the parsed dict/list on success, or None on failure.
+
+    Why: Reddit (and sometimes GitHub) returns an HTML error page or
+    empty body instead of JSON when they block/rate-limit a request.
+    Calling .json() on HTML raises JSONDecodeError and crashes the app.
+    """
+    try:
+        # Check Content-Type header — JSON responses say "application/json"
+        content_type = response.headers.get("Content-Type", "")
+        if "json" not in content_type and "javascript" not in content_type:
+            # Response is HTML or something else — not parseable as JSON
+            return None
+
+        return response.json()   # parse and return the dict/list
+
+    except Exception:
+        # Catches JSONDecodeError, ValueError, etc.
+        return None
+
+
 # ─────────────────────────────────────────────
 #  1. REDDIT
 # ─────────────────────────────────────────────
- 
+
 def fetch_reddit():
     """
-    Fetches the top 25 posts of the day from r/all using Reddit's
-    free public JSON endpoint — no API key or login required.
- 
-    Returns:
-        pd.DataFrame with columns: title, score, subreddit, url, num_comments
+    Fetches top 25 posts of the day from r/all.
+
+    Reddit blocks many cloud datacenter IPs. When that happens the response
+    is an HTML page (not JSON), so _safe_json() returns None and we fall
+    back to sample data — the app keeps running normally.
     """
     headers = {
-        # Reddit REQUIRES a User-Agent string or it blocks the request (429 error).
-        # Format: AppName/Version (by /u/YourRedditUsername)
-        'User-Agent': 'TrendingNowDashboard/1.0 (by /u/trendingdashboard)'
+        # Reddit requires a descriptive User-Agent or it returns 429/403
+        "User-Agent": "Mozilla/5.0 (compatible; TrendingDashboard/1.0)"
     }
- 
-    # ?t=day  → top posts of the last 24 hours
-    # &limit=25 → fetch 25 posts max
     url = "https://www.reddit.com/r/all/top.json?t=day&limit=25"
- 
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        # timeout=10 → stop waiting after 10 seconds to avoid hanging the app
- 
-        if response.status_code == 200:          # 200 = HTTP "OK"
-            data = response.json()               # parse JSON response into a Python dict
-            posts = data.get("data", {}).get("children", [])
-            # Reddit wraps posts inside data.children — each post is a dict called "data"
- 
-            reddit_data = []
-            for post in posts:
-                post_data = post.get("data", {})  # inner dict with all post fields
-                reddit_data.append({
-                    "title":        post_data.get("title", ""),
-                    "score":        post_data.get("score", 0),        # upvotes
-                    "subreddit":    post_data.get("subreddit", ""),
-                    "url":          post_data.get("url", ""),
-                    "num_comments": post_data.get("num_comments", 0)
-                })
- 
-            return pd.DataFrame(reddit_data)   # convert list of dicts → DataFrame
- 
-        else:
-            # API is up but returned an error code (e.g. 429 rate-limit)
-            st.warning(f"⚠️ Reddit returned status {response.status_code}. Showing sample data.")
+
+        # _safe_json returns None if response isn't valid JSON
+        data = _safe_json(response)
+
+        if data is None:
+            # Reddit blocked us or returned garbage — use sample data silently
+            st.info("📋 Reddit data: showing curated sample (live API restricted on cloud)")
             return _sample_reddit()
- 
-    except Exception as e:
-        # Network error, timeout, JSON parse failure, etc.
-        st.error(f"❌ Reddit fetch failed: {e}")
+
+        posts = data.get("data", {}).get("children", [])
+
+        if not posts:
+            return _sample_reddit()
+
+        reddit_data = []
+        for post in posts:
+            pd_ = post.get("data", {})
+            reddit_data.append({
+                "title":        pd_.get("title", ""),
+                "score":        pd_.get("score", 0),
+                "subreddit":    pd_.get("subreddit", ""),
+                "url":          pd_.get("url", ""),
+                "num_comments": pd_.get("num_comments", 0)
+            })
+
+        return pd.DataFrame(reddit_data)
+
+    except requests.exceptions.Timeout:
+        st.info("📋 Reddit timed out — showing sample data.")
         return _sample_reddit()
- 
- 
+    except Exception as e:
+        st.info(f"📋 Reddit unavailable ({type(e).__name__}) — showing sample data.")
+        return _sample_reddit()
+
+
 # ─────────────────────────────────────────────
 #  2. HACKER NEWS
 # ─────────────────────────────────────────────
- 
+
 def fetch_hackernews():
     """
-    Fetches top 20 stories from Hacker News using its free Firebase API.
-    Step 1: get list of top story IDs
-    Step 2: fetch details for each ID individually
- 
-    Returns:
-        pd.DataFrame with columns: title, score, url, by, time
+    Fetches top 20 stories from Hacker News Firebase API.
+    HN's API is very reliable and rarely blocks cloud IPs.
     """
     try:
-        # Step 1: get ordered list of top story IDs (returns a JSON array of integers)
+        # Step 1: get list of top story IDs
         id_resp = requests.get(
             "https://hacker-news.firebaseio.com/v0/topstories.json",
             timeout=10
         )
- 
-        if id_resp.status_code != 200:
-            st.warning("⚠️ HN top-stories list unavailable. Showing sample data.")
+        ids = _safe_json(id_resp)
+
+        if not ids:
+            st.info("📋 HN unavailable — showing sample data.")
             return _sample_hackernews()
- 
-        story_ids = id_resp.json()[:20]   # keep only the first 20 IDs
- 
+
+        story_ids = ids[:20]   # only fetch top 20 to keep it fast
+
         hn_data = []
         for story_id in story_ids:
-            # Step 2: fetch the full item object for each story ID
             item_resp = requests.get(
                 f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json",
-                timeout=5   # shorter timeout per item
+                timeout=5
             )
-            if item_resp.status_code == 200:
-                story = item_resp.json()
-                if story and story.get("type") == "story":
-                    # only include actual stories (not jobs/polls/comments)
-                    hn_data.append({
-                        "title": story.get("title", ""),
-                        "score": story.get("score", 0),
-                        "url":   story.get("url", "https://news.ycombinator.com"),
-                        "by":    story.get("by", "anonymous"),
-                        "time":  story.get("time", 0)   # Unix timestamp
-                    })
- 
+            story = _safe_json(item_resp)
+
+            # Only include actual story items (not jobs, polls, comments)
+            if story and story.get("type") == "story" and story.get("title"):
+                hn_data.append({
+                    "title": story.get("title", ""),
+                    "score": story.get("score", 0),
+                    "url":   story.get("url", "https://news.ycombinator.com"),
+                    "by":    story.get("by", "anonymous"),
+                    "time":  story.get("time", 0)
+                })
+
         return pd.DataFrame(hn_data) if hn_data else _sample_hackernews()
- 
+
     except Exception as e:
-        st.error(f"❌ Hacker News fetch failed: {e}")
+        st.info(f"📋 HN unavailable ({type(e).__name__}) — showing sample data.")
         return _sample_hackernews()
- 
- 
+
+
 # ─────────────────────────────────────────────
 #  3. GITHUB TRENDING
 # ─────────────────────────────────────────────
- 
+
 def fetch_github_trending():
     """
-    Uses GitHub's public search API to find the most-starred repos
-    created in the last 7 days — this mimics the "trending" page.
- 
-    Returns:
-        pd.DataFrame with columns: name, full_name, description, stars, forks, language, url
+    Uses GitHub's public search API to find repos created in the last 7 days,
+    sorted by stars — this mimics the official GitHub Trending page.
+
+    GitHub's API is generous with unauthenticated requests (60/hour).
     """
     try:
         from datetime import datetime, timedelta
- 
-        # Calculate date 7 days ago in YYYY-MM-DD format (required by GitHub API)
+
+        # Repos created after this date (7 days ago)
         since = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
- 
+
         url = (
-            f"https://api.github.com/search/repositories"
+            "https://api.github.com/search/repositories"
             f"?q=created:>{since}&sort=stars&order=desc&per_page=25"
         )
-        # q=created:>DATE  → repos created after DATE
-        # sort=stars        → rank by star count
-        # per_page=25       → 25 results
- 
-        headers = {
-            'Accept': 'application/vnd.github.v3+json'   # required GitHub API header
-        }
- 
+        headers = {"Accept": "application/vnd.github.v3+json"}
+
         response = requests.get(url, headers=headers, timeout=10)
- 
-        if response.status_code == 200:
-            repos = response.json().get("items", [])
- 
-            github_data = []
-            for repo in repos:
-                github_data.append({
-                    "name":        repo.get("name", ""),
-                    "full_name":   repo.get("full_name", ""),
-                    "description": repo.get("description", "No description") or "No description",
-                    "stars":       repo.get("stargazers_count", 0),
-                    "forks":       repo.get("forks_count", 0),
-                    "language":    repo.get("language", "Unknown") or "Unknown",
-                    "url":         repo.get("html_url", "")
-                })
- 
-            return pd.DataFrame(github_data)
- 
-        else:
-            st.warning(f"⚠️ GitHub API returned {response.status_code}. Showing sample data.")
+        data = _safe_json(response)
+
+        if not data or "items" not in data:
+            st.info("📋 GitHub API unavailable — showing sample data.")
             return _sample_github()
- 
+
+        repos = data["items"]
+
+        github_data = []
+        for repo in repos:
+            github_data.append({
+                "name":        repo.get("name", ""),
+                "full_name":   repo.get("full_name", ""),
+                "description": repo.get("description") or "No description",
+                "stars":       repo.get("stargazers_count", 0),
+                "forks":       repo.get("forks_count", 0),
+                "language":    repo.get("language") or "Unknown",
+                "url":         repo.get("html_url", "")
+            })
+
+        return pd.DataFrame(github_data)
+
     except Exception as e:
-        st.error(f"❌ GitHub fetch failed: {e}")
+        st.info(f"📋 GitHub unavailable ({type(e).__name__}) — showing sample data.")
         return _sample_github()
- 
- 
+
+
 # ─────────────────────────────────────────────
-#  FALLBACK SAMPLE DATA (used when APIs fail)
+#  SAMPLE / FALLBACK DATA
 # ─────────────────────────────────────────────
-# These functions return realistic-looking placeholder data so the app
-# never shows a blank screen or crashes during demos / rate-limiting.
- 
+# Used whenever a live API is blocked or unavailable.
+# Realistic enough to make the dashboard look great for demos.
+
 def _sample_reddit():
     return pd.DataFrame({
-        "title":        ["AI model beats human experts", "Python 3.13 is out",
-                         "Open source project hits 100k stars", "New study on sleep & productivity",
-                         "NASA reveals new Mars images"],
-        "score":        [45200, 23100, 18400, 9800, 7600],
-        "subreddit":    ["technology", "python", "programming", "science", "space"],
-        "num_comments": [812, 430, 295, 178, 134],
-        "url":          ["https://reddit.com"] * 5
+        "title": [
+            "AI agents are now writing 25% of Google's code",
+            "Python 3.14 drops the GIL by default",
+            "SpaceX Starship completes first full orbital mission",
+            "New study: 4-day work week increases output by 22%",
+            "Open-source LLM beats GPT-4 on coding benchmarks",
+            "NASA confirms liquid water lake beneath Mars surface",
+            "Rust overtakes C++ in Linux kernel contributions",
+            "France bans TikTok on all government devices",
+            "Scientists grow functional human kidney in lab",
+            "Europe's AI Act enforcement begins — what it means",
+        ],
+        "score":        [98400, 74200, 61300, 52100, 44800, 38600, 31200, 27900, 24500, 19800],
+        "subreddit":    ["technology","python","space","science","MachineLearning",
+                         "space","programming","worldnews","science","technology"],
+        "num_comments": [3420, 2180, 1940, 1620, 1380, 1100, 890, 760, 640, 510],
+        "url":          ["https://reddit.com"] * 10
     })
- 
+
 def _sample_hackernews():
     return pd.DataFrame({
-        "title": ["Show HN: I built a self-hostable analytics tool",
-                  "The death of the junior developer",
-                  "Why Rust is eating C++",
-                  "GPT-5 architecture leaked",
-                  "Postgres is all you need"],
-        "score": [892, 743, 612, 544, 489],
-        "by":    ["hacker1", "hacker2", "hacker3", "hacker4", "hacker5"],
-        "url":   ["https://news.ycombinator.com"] * 5,
-        "time":  [1700000000] * 5
+        "title": [
+            "Show HN: I built a terminal-native code review tool",
+            "The unreasonable effectiveness of just showing up",
+            "Why I rewrote our backend in Go (from Node.js)",
+            "SQLite is not a toy database",
+            "Ask HN: How do you structure a 1-person startup?",
+            "Htmx 2.0 released",
+            "The future of the web is local-first",
+            "Anthropic's new paper on long-context reasoning",
+            "Postgres full-text search is good enough",
+            "I quit FAANG after 8 years. Here's what I learned.",
+        ],
+        "score": [1240, 987, 834, 756, 698, 612, 589, 534, 498, 445],
+        "by":    ["user1","user2","user3","user4","user5",
+                  "user6","user7","user8","user9","user10"],
+        "url":   ["https://news.ycombinator.com"] * 10,
+        "time":  [1700000000] * 10
     })
- 
+
 def _sample_github():
     return pd.DataFrame({
-        "name":        ["supermemory", "openui", "tldraw", "pipecat", "livekit"],
-        "full_name":   ["user/supermemory", "user/openui", "user/tldraw",
-                        "user/pipecat", "user/livekit"],
-        "description": ["AI memory layer for LLMs", "Describe UI and it generates it",
-                        "Infinite canvas drawing tool", "Real-time AI voice pipelines",
-                        "Open source video/audio infra"],
-        "stars":       [18200, 14500, 11300, 9700, 8100],
-        "forks":       [980, 760, 620, 510, 430],
-        "language":    ["TypeScript", "Python", "TypeScript", "Python", "Go"],
-        "url":         ["https://github.com"] * 5
+        "name":      ["ollama","open-interpreter","surya","screenshot-to-code","fabric"],
+        "full_name": ["ollama/ollama","KillianLucas/open-interpreter",
+                      "VikParuchuri/surya","abi/screenshot-to-code","danielmiessler/fabric"],
+        "description": [
+            "Run Llama 3, Mistral, Gemma locally",
+            "A natural language interface for your computer",
+            "OCR and layout analysis for any language",
+            "Turn screenshots into clean HTML/Tailwind/React",
+            "Augmenting humans using AI patterns"
+        ],
+        "stars":    [52000, 43000, 38000, 31000, 27000],
+        "forks":    [4100, 3800, 2900, 2400, 1800],
+        "language": ["Go","Python","Python","TypeScript","Go"],
+        "url":      [
+            "https://github.com/ollama/ollama",
+            "https://github.com/KillianLucas/open-interpreter",
+            "https://github.com/VikParuchuri/surya",
+            "https://github.com/abi/screenshot-to-code",
+            "https://github.com/danielmiessler/fabric"
+        ]
     })
