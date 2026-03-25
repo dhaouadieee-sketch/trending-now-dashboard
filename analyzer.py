@@ -28,11 +28,21 @@ def add_sentiment(df, text_column='title'):
 
 def get_top_keywords(df, text_column='title', n=10):
     """Extract top keywords from text column"""
+    if df.empty or text_column not in df.columns:
+        return []
+    
     # Combine all text
     all_text = ' '.join(df[text_column].dropna().astype(str))
     
+    if not all_text.strip():
+        return []
+    
     # Tokenize
-    tokens = word_tokenize(all_text.lower())
+    try:
+        tokens = word_tokenize(all_text.lower())
+    except:
+        # Fallback: simple split if NLTK fails
+        tokens = all_text.lower().split()
     
     # Remove stopwords and non-alphabetic tokens
     stop_words = set(stopwords.words('english'))
