@@ -1,33 +1,4 @@
-import nltk
 import streamlit as st
-import os
-
-# Download all required NLTK data
-@st.cache_resource
-def download_nltk_data():
-    """Download required NLTK data packages"""
-    try:
-        # Create nltk data directory if needed
-        nltk_data_dir = os.path.join(os.path.expanduser("~"), "nltk_data")
-        if not os.path.exists(nltk_data_dir):
-            os.makedirs(nltk_data_dir)
-        
-        # Download required packages
-        nltk.download('vader_lexicon', quiet=True, download_dir=nltk_data_dir)
-        nltk.download('punkt', quiet=True, download_dir=nltk_data_dir)
-        nltk.download('punkt_tab', quiet=True, download_dir=nltk_data_dir)
-        nltk.download('stopwords', quiet=True, download_dir=nltk_data_dir)
-        
-        # Add to nltk data path
-        nltk.data.path.append(nltk_data_dir)
-        
-    except Exception as e:
-        st.warning(f"NLTK download warning: {str(e)}")
-
-# Download NLTK data before importing other modules
-download_nltk_data()
-
-# Now import other modules
 import plotly.express as px
 import pandas as pd
 from wordcloud import WordCloud
@@ -61,16 +32,16 @@ if hn_df.empty:
 if github_df.empty:
     st.warning("⚠️ Using sample data for GitHub")
 
-# Rest of your code continues here...
+# Continue with your tabs...
 tab1, tab2, tab3 = st.tabs(["Reddit", "Hacker News", "GitHub Trending"])
 
 # ── Reddit Tab ───────────────────────────────────────────
 with tab1:
     st.subheader("Top Reddit Posts Today")
-    col1, col2 = st.columns(2)
+    if not reddit_df.empty:
+        col1, col2 = st.columns(2)
 
-    with col1:
-        if not reddit_df.empty:
+        with col1:
             keywords = get_top_keywords(reddit_df)
             if keywords:
                 kw_df = pd.DataFrame(keywords, columns=["keyword", "count"])
@@ -78,27 +49,22 @@ with tab1:
                              title="Top Keywords", color="count",
                              color_continuous_scale="Reds")
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No keywords found")
-        else:
-            st.info("No Reddit data available")
 
-    with col2:
-        if not reddit_df.empty and "sentiment" in reddit_df.columns:
-            sentiment_counts = reddit_df["sentiment"].value_counts()
-            fig2 = px.pie(values=sentiment_counts.values,
-                          names=sentiment_counts.index,
-                          title="Sentiment of Post Titles",
-                          color_discrete_map={"Positive":"#2ecc71",
-                                              "Negative":"#e74c3c",
-                                              "Neutral":"#95a5a6"})
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("No sentiment data available")
+        with col2:
+            if "sentiment" in reddit_df.columns:
+                sentiment_counts = reddit_df["sentiment"].value_counts()
+                fig2 = px.pie(values=sentiment_counts.values,
+                              names=sentiment_counts.index,
+                              title="Sentiment of Post Titles",
+                              color_discrete_map={"Positive":"#2ecc71",
+                                                  "Negative":"#e74c3c",
+                                                  "Neutral":"#95a5a6"})
+                st.plotly_chart(fig2, use_container_width=True)
 
-    if not reddit_df.empty:
         st.dataframe(reddit_df[["title","score","subreddit","sentiment"]],
                      use_container_width=True)
+    else:
+        st.info("No Reddit data available")
 
 # ── Hacker News Tab ──────────────────────────────────────
 with tab2:

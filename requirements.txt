@@ -6,8 +6,6 @@ matplotlib
 praw
 requests
 beautifulsoup4
-nltk
 vaderSentiment
 scikit-learn
 numpy
-textblob
