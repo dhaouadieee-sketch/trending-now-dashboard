@@ -68,13 +68,33 @@ with tab1:
 # Hacker News Tab 
 with tab2:
     st.subheader("Top Hacker News Stories")
-    col1, col2 = st.columns(2)
+    
+    # Sort by score (highest first)
+    if not hn_df.empty:
+        hn_df_sorted = hn_df.sort_values(by='score', ascending=False)
+        
+        col1, col2 = st.columns(2)
 
-    with col1:
-        fig = px.bar(hn_df.head(15), x="score", y="title", orientation="h",
-                     title="Top Stories by Score",
-                     color="score", color_continuous_scale="Blues")
-        st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            fig = px.bar(hn_df_sorted.head(15), x="score", y="title", orientation="h",
+                         title="Top Stories by Score",
+                         color="score", color_continuous_scale="Blues")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            if "sentiment" in hn_df_sorted.columns:
+                sentiment_counts = hn_df_sorted["sentiment"].value_counts()
+                fig2 = px.pie(values=sentiment_counts.values,
+                              names=sentiment_counts.index,
+                              title="Sentiment Analysis",
+                              color_discrete_map={"Positive":"#2ecc71",
+                                                  "Negative":"#e74c3c",
+                                                  "Neutral":"#95a5a6"})
+                st.plotly_chart(fig2, use_container_width=True)
+
+        st.dataframe(hn_df_sorted[["title","score","sentiment"]], use_container_width=True)
+    else:
+        st.info("No Hacker News data available")
 #GitHub Tab 
 with tab3:
     st.subheader("GitHub Trending Repositories")
