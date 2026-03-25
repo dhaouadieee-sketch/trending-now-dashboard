@@ -68,9 +68,8 @@ with tab1:
 # Hacker News Tab 
 with tab2:
     st.subheader("Top Hacker News Stories")
-    
-    # Sort by score (highest first)
     if not hn_df.empty:
+        # Sort by score (highest first)
         hn_df_sorted = hn_df.sort_values(by='score', ascending=False)
         
         col1, col2 = st.columns(2)
@@ -94,8 +93,7 @@ with tab2:
 
         st.dataframe(hn_df_sorted[["title","score","sentiment"]], use_container_width=True)
     else:
-        st.info("No Hacker News data available")
-#GitHub Tab 
+        st.info("No Hacker News data available")#GitHub Tab 
 with tab3:
     st.subheader("GitHub Trending Repositories")
     if not github_df.empty:
