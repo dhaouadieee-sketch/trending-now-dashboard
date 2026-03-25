@@ -10,3 +10,4 @@ nltk
 vaderSentiment
 scikit-learn
 numpy
+textblob

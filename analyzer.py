@@ -1,26 +1,45 @@
 import pandas as pd
-from textblob import TextBlob
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
 from collections import Counter
-import re
 
-def get_sentiment(text):
-    score = TextBlob(str(text)).sentiment.polarity
-    if score > 0.1:
-        return "Positive"
-    elif score < -0.1:
-        return "Negative"
-    else:
-        return "Neutral"
+# Initialize VADER sentiment analyzer
+analyzer = SentimentIntensityAnalyzer()
 
-def add_sentiment(df, column="title"):
-    df["sentiment"] = df[column].apply(get_sentiment)
+def add_sentiment(df, text_column='title'):
+    """Add sentiment analysis to dataframe using VADER"""
+    sentiments = []
+    for text in df[text_column]:
+        if pd.isna(text):
+            sentiments.append('Neutral')
+        else:
+            score = analyzer.polarity_scores(str(text))['compound']
+            if score >= 0.05:
+                sentiments.append('Positive')
+            elif score <= -0.05:
+                sentiments.append('Negative')
+            else:
+                sentiments.append('Neutral')
+    
+    df['sentiment'] = sentiments
     return df
 
-def get_top_keywords(df, column="title", top_n=20):
-    stopwords = {"the","a","an","is","in","of","to","and","for",
-                 "with","on","at","by","from","this","that","it","as"}
-    all_words = []
-    for title in df[column].dropna():
-        words = re.findall(r'\b[a-zA-Z]{4,}\b', title.lower())
-        all_words.extend([w for w in words if w not in stopwords])
-    return Counter(all_words).most_common(top_n)
+def get_top_keywords(df, text_column='title', n=10):
+    """Extract top keywords from text column"""
+    # Combine all text
+    all_text = ' '.join(df[text_column].dropna().astype(str))
+    
+    # Tokenize
+    tokens = word_tokenize(all_text.lower())
+    
+    # Remove stopwords and non-alphabetic tokens
+    stop_words = set(stopwords.words('english'))
+    keywords = [word for word in tokens if word.isalpha() and word not in stop_words]
+    
+    # Count frequencies
+    word_counts = Counter(keywords)
+    
+    # Return top n keywords
+    return word_counts.most_common(n)
