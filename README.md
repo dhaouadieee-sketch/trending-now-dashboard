@@ -3,7 +3,7 @@
 A real-time dashboard that tracks trending content from Reddit, Hacker News, and GitHub, with sentiment analysis and keyword extraction.
 
 ##  Live Demo
-[View the Live Dashboard]([https://trending-now-dashboard-lqxsbj98m8rxfm8qhdfnvs.streamlit.app/](https://trending-now-dashboard-hb7b3wecn2vnw73zsdjqk9.streamlit.app/))
+[View the Live Dashboard](https://trending-now-dashboard-hb7b3wecn2vnw73zsdjqk9.streamlit.app/)
 
 ##  Features
 
