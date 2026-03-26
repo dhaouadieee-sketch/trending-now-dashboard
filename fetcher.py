@@ -4,38 +4,50 @@ import streamlit as st
 from datetime import datetime, timedelta
 
 def fetch_reddit():
-    """Fetch Reddit data with safe JSON handling"""
     try:
-        headers = {"User-Agent": "TrendingDashboard/1.0"}
-        response = requests.get(
-            "https://www.reddit.com/r/all/top.json?t=day&limit=25",
-            headers=headers,
-            timeout=10
+        # Use OAuth — much less likely to get blocked
+        auth = requests.auth.HTTPBasicAuth(
+            st.secrets["REDDIT_CLIENT_ID"],
+            st.secrets["REDDIT_CLIENT_SECRET"]
         )
-        
-        # Check if we got a valid response
-        if response.status_code != 200:
+        data_payload = {
+            "grant_type": "client_credentials"
+        }
+        headers = {"User-Agent": "TrendingDashboard/1.0"}
+
+        token_resp = requests.post(
+            "https://www.reddit.com/api/v1/access_token",
+            auth=auth, data=data_payload, headers=headers, timeout=10
+        )
+        token = token_resp.json().get("access_token")
+
+        if not token:
             return _sample_reddit()
-        
-        # Try to parse JSON safely
-        try:
-            data = response.json()
-        except:
-            return _sample_reddit()
-        
+
+        api_headers = {
+            "Authorization": f"bearer {token}",
+            "User-Agent": "TrendingDashboard/1.0"
+        }
+        resp = requests.get(
+            "https://oauth.reddit.com/r/all/top?t=day&limit=25",
+            headers=api_headers, timeout=10
+        )
+        data = _safe_json(resp)
         posts = data.get("data", {}).get("children", [])
+
         if not posts:
             return _sample_reddit()
-        
+
         return pd.DataFrame([{
-            "title": p.get("data", {}).get("title", ""),
-            "score": p.get("data", {}).get("score", 0),
-            "subreddit": p.get("data", {}).get("subreddit", ""),
-            "url": p.get("data", {}).get("url", ""),
-            "num_comments": p.get("data", {}).get("num_comments", 0)
+            "title":        p["data"].get("title", ""),
+            "score":        p["data"].get("score", 0),
+            "subreddit":    p["data"].get("subreddit", ""),
+            "url":          p["data"].get("url", ""),
+            "num_comments": p["data"].get("num_comments", 0)
         } for p in posts])
-        
-    except:
+
+    except Exception as e:
+        st.info(f"📋 Reddit unavailable — showing sample data.")
         return _sample_reddit()
 
 def fetch_hackernews():
